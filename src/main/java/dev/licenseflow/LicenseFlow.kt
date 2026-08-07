@@ -20,7 +20,7 @@ class LicenseFlowClient(
     private val baseUrl: String = "https://api.licenseflow.dev/v1"
 ) {
     private val client = OkHttpClient()
-    private let JSON = "application/json; charset=utf-8".toMediaType()
+    private val JSON = "application/json; charset=utf-8".toMediaType()
 
     fun getDeviceFingerprint(context: Context): String {
         val androidId = Settings.Secure.getString(context.contentResolver, Settings.Secure.ANDROID_ID)
