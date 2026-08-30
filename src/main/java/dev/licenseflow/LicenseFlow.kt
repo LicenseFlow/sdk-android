@@ -30,15 +30,15 @@ class LicenseFlowClient(
     fun activate(context: Context, licenseKey: String, customFingerprint: String? = null): LicenseLease {
         val fp = customFingerprint ?: getDeviceFingerprint(context)
         val jsonObj = JSONObject().apply {
-            put("key", licenseKey)
-            put("fingerprint", fp)
+            put("licenseKey", licenseKey)
+            put("deviceId", fp)
         }
 
         val request = Request.Builder()
-            .url("$baseUrl/licenses/activate")
+            .url("$baseUrl/activate-license")
             .post(jsonObj.toString().toRequestBody(JSON))
             .apply {
-                if (apiKey.isNotEmpty()) addHeader("Authorization", "Bearer $apiKey")
+                if (apiKey.isNotEmpty()) addHeader("x-api-key", apiKey)
             }
             .build()
 
@@ -56,16 +56,19 @@ class LicenseFlowClient(
         }
     }
 
-    fun resolveForIdentity(authToken: String, organizationId: String, productId: String): JSONObject {
+    fun resolveForIdentity(email: String, productId: String? = null, environmentId: String? = null): JSONObject {
         val jsonObj = JSONObject().apply {
-            put("organization_id", organizationId)
-            put("product_id", productId)
+            put("email", email)
+            if (productId != null) put("productId", productId)
+            if (environmentId != null) put("environmentId", environmentId)
         }
 
         val request = Request.Builder()
-            .url("$baseUrl/entitlements/resolve-identity")
+            .url("$baseUrl/resolve-entitlements")
             .post(jsonObj.toString().toRequestBody(JSON))
-            .addHeader("Authorization", "Bearer $authToken")
+            .apply {
+                if (apiKey.isNotEmpty()) addHeader("x-api-key", apiKey)
+            }
             .build()
 
         client.newCall(request).execute().use { response ->
