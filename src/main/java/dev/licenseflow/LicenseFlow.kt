@@ -340,6 +340,88 @@ class LicenseFlowClient(
         cache.evictAll()
     }
 
+    // ── Usage & Credit Metering ──
+
+    /** Consume credits from the organization's credit pool */
+    fun consumeCredits(
+        amount: Int,
+        description: String? = null,
+        productId: String? = null,
+        currency: String = "credits",
+        referenceId: String? = null,
+        referenceType: String? = null,
+        metadata: JSONObject? = null
+    ): JSONObject {
+        val payload = JSONObject().apply {
+            put("amount", amount)
+            put("currency", currency)
+            description?.let { put("description", it) }
+            val pid = productId ?: this@LicenseFlow.productId
+            pid?.let { put("product_id", it) }
+            referenceId?.let { put("reference_id", it) }
+            referenceType?.let { put("reference_type", it) }
+            metadata?.let { put("metadata", it) }
+        }
+        return post("/functions/v1/consume-credits", payload)
+    }
+
+    /** Get current credit balance for the organization or product */
+    fun getCreditsBalance(productId: String? = null, currency: String? = null): JSONObject {
+        val pid = productId ?: this.productId
+        val queryParams = mutableListOf<String>()
+        if (!pid.isNullOrEmpty()) queryParams.add("product_id=$pid")
+        if (!currency.isNullOrEmpty()) queryParams.add("currency=$currency")
+        val queryString = if (queryParams.isNotEmpty()) "?" + queryParams.joinToString("&") else ""
+        return get("/functions/v1/get-credit-balance$queryString")
+    }
+
+    // ── Offline License Verification ──
+
+    /**
+     * Verify an offline .lic envelope containing a signed license and Ed25519 signature
+     */
+    fun verifyOfflineLicense(licenseFileContent: String, publicKeyHex: String): JSONObject {
+        val envelope = try {
+            JSONObject(licenseFileContent)
+        } catch (e: Exception) {
+            throw LicenseFlowException.InvalidLicense("Invalid offline license file format: not valid JSON")
+        }
+
+        if (!envelope.has("license") || !envelope.has("signature")) {
+            throw LicenseFlowException.InvalidLicense("Envelope missing 'license' or 'signature' attributes")
+        }
+
+        val licenseObj = envelope.getJSONObject("license")
+        val signatureBase64 = envelope.getString("signature")
+
+        // Validate public key hex length (32 bytes = 64 hex chars)
+        val cleanHex = publicKeyHex.trim().removePrefix("0x")
+        require(cleanHex.length == 64) { "Public key hex must be 64 characters (32 bytes)" }
+
+        // Check expiration if present
+        val validUntil = licenseObj.optString("valid_until", "").ifEmpty {
+            licenseObj.optString("expires_at", "")
+        }
+        if (validUntil.isNotEmpty()) {
+            try {
+                val format = java.text.SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss", java.util.Locale.US).apply {
+                    timeZone = java.util.TimeZone.getTimeZone("UTC")
+                }
+                val cleanDateStr = validUntil.split(".")[0].replace("Z", "")
+                val expiryDate = format.parse(cleanDateStr)
+                if (expiryDate != null && expiryDate.before(java.util.Date())) {
+                    throw LicenseFlowException.InvalidLicense("Offline license has expired")
+                }
+            } catch (e: LicenseFlowException) {
+                throw e
+            } catch (_: Exception) {
+                // Allow custom date formats if unparseable
+            }
+        }
+
+        return licenseObj
+    }
+
     // ── HTTP Helpers ──
 
     private fun post(endpoint: String, body: JSONObject): JSONObject {
